@@ -1,56 +1,28 @@
-// === sheets.js ===
-const { GoogleSpreadsheet } = require('google-spreadsheet');
-const credenciais = require('./credenciais.json');
+// === server.js ===
+const express = require('express');
+const bodyParser = require('body-parser');
+// Importa diretamente a função que processa e grava na planilha
+const processarMensagem = require('./sheets');
 
-const SHEET_ID = '1Io0jlHVYRo2KGQKdMUw9xVhnqnrL1M38BFaZ87IL5lw';
-const aba = 'LENHADOR';
+const app = express();
+const PORT = process.env.PORT || 10000;
 
-async function processarMensagem(data) {
-  const doc = new GoogleSpreadsheet(SHEET_ID);
-  await doc.useServiceAccountAuth(credenciais);
-  await doc.loadInfo();
+app.use(bodyParser.json());
 
-  const sheet = doc.sheetsByTitle[aba];
-  if (!sheet) {
-    console.error(`Aba ${aba} não encontrada.`);
-    return;
+app.post('/webhook', async (req, res) => {
+  console.log('✅ Webhook recebido!');
+  console.log(JSON.stringify(req.body, null, 2));
+
+  try {
+    await processarMensagem(req.body);
+    console.log('✅ processarMensagem executada');
+  } catch (e) {
+    console.error('❌ Erro ao processar mensagem:', e);
   }
 
-  const nome = data?.senderName || '';
-  const mensagem = data?.text?.message || '';
-  const telefone = data?.phone || '';
+  res.sendStatus(200);
+});
 
-  if (!mensagem) {
-    console.log('❌ Mensagem vazia, ignorada.');
-    return;
-  }
-
-  const campanhas = ['1 frasco', '2 frascos', '3 frascos', '6 frascos'];
-  const padrao = new RegExp(`(${campanhas.join('|')})`, 'i');
-  const confirmacoes = /(pix|pedido|confirmado|foi aprovado|pagamento|finalizei|feito)/i;
-
-  if (padrao.test(mensagem)) {
-    await sheet.addRow({
-      data: new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
-      nome,
-      telefone,
-      campanha: mensagem,
-      status: 'pendente'
-    });
-    console.log('✅ Campanha registrada');
-  }
-
-  if (confirmacoes.test(mensagem)) {
-    const rows = await sheet.getRows();
-    const row = rows.reverse().find(r => r.telefone === telefone && r.status !== 'conversão');
-    if (row) {
-      row.status = 'conversão';
-      await row.save();
-      console.log('✅ Conversão registrada');
-    } else {
-      console.log('⚠️ Nenhuma campanha correspondente encontrada para marcar como conversão.');
-    }
-  }
-}
-
-module.exports = { processarMensagem };
+app.listen(PORT, () => {
+  console.log(`Servidor rodando na porta ${PORT}`);
+});
