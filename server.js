@@ -1,10 +1,9 @@
-// === server.js ===
-const express = require('express');
-const bodyParser = require('body-parser');
-// Importa diretamente a função que processa e grava na planilha
-const processarMensagem = require('./sheets');
+// ── server.js ──
+const express      = require('express');
+const bodyParser   = require('body-parser');
+const { processarMensagem } = require('./sheets');
 
-const app = express();
+const app  = express();
 const PORT = process.env.PORT || 10000;
 
 app.use(bodyParser.json());
@@ -15,9 +14,8 @@ app.post('/webhook', async (req, res) => {
 
   try {
     await processarMensagem(req.body);
-    console.log('✅ processarMensagem executada');
-  } catch (e) {
-    console.error('❌ Erro ao processar mensagem:', e);
+  } catch (err) {
+    console.error('❌ Erro no processarMensagem():', err);
   }
 
   res.sendStatus(200);
