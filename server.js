@@ -1,6 +1,6 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const { processarMensagem } = require('./sheets');
+const processarMensagem = require('./sheets'); // ✅ Correção aqui
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -14,7 +14,7 @@ app.post('/webhook', async (req, res) => {
   try {
     await processarMensagem(req.body);
   } catch (e) {
-    console.error('Erro ao processar mensagem:', e);
+    console.error('❌ Erro ao processar mensagem:', e);
   }
 
   res.sendStatus(200);
