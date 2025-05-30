@@ -1,61 +1,62 @@
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 const creds = require('./credenciais.json');
 
+// ID da planilha compartilhada
 const doc = new GoogleSpreadsheet('1RA5sclobWJt8smpqRsYc6EvRGFK_x3dhndG2V2SCfkg');
 
-const CAMPANHAS = [
-  { nome: '1 Frasco', palavras: ['passando para saber', 'como está o crescimento com o minoxidil'] },
-  { nome: '2 Frascos', palavras: ['gostaria de saber como está o crescimento'] },
-  { nome: '3 Frascos', palavras: ['faz um tempo que você iniciou', 'está tendo resultado'] },
-  { nome: '6 Frascos', palavras: ['você está perto de completar os 6 meses'] },
+const campanhas = [
+  'Fala {{ first_name }}, aqui é o Alessandro do Barba Lenhador 👋\nPassando para saber, como está o crescimento com o Minoxidil?\nVocê tem alguma dúvida? Estou aqui para ajudar!',
+  'Fala {{ first_name }}, aqui é o Alessandro do Barba Lenhador 👋\nJá faz um tempo que você iniciou o tratamento, gostaria de saber como está o crescimento com o Minoxidil?\nVocê tem alguma dúvida? Estou aqui para ajudar!',
+  'Fala {{ first_name }}, aqui é o Alessandro do Barba Lenhador 👋\nVi que faz um tempo que você iniciou o uso do Minoxidill, está tendo resultado?\nVocê tem alguma dúvida? Estou aqui para ajudar!',
+  'Fala {{ first_name }}, aqui é o Alessandro do Barba Lenhador 👋\nVocê está perto de completar os 6 meses de tratamento! Como tem sido sua evolução até agora?\nVocê tem alguma dúvida? Estou aqui para ajudar!'
 ];
 
-const CONVERSOES = ['pix aprovado', 'pedido confirmado', 'pagamento aprovado', 'compra realizada', 'fechamos'];
+const palavrasConversao = ['pix aprovado', 'pedido confirmado'];
 
-function identificarCampanha(mensagem) {
-  const texto = mensagem.toLowerCase();
-  for (const campanha of CAMPANHAS) {
-    if (campanha.palavras.every(p => texto.includes(p))) {
-      return campanha.nome;
-    }
-  }
-  return null;
+function normalizarTexto(texto) {
+  return texto?.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
-function detectarConversao(mensagem) {
-  const texto = mensagem.toLowerCase();
-  return CONVERSOES.some(p => texto.includes(p));
-}
+async function processarMensagem(dados) {
+  const mensagem = dados?.text?.message;
+  const telefone = dados?.phone;
 
-async function registrarMensagemOuAtualizar({ numero, texto, dataHora }) {
+  if (!mensagem || !telefone) return;
+
   await doc.useServiceAccountAuth(creds);
   await doc.loadInfo();
-  const aba = doc.sheetsByTitle['LENHADOR'];
-  const linhas = await aba.getRows();
+  const sheet = doc.sheetsByTitle['LENHADOR'];
+  await sheet.loadHeaderRow();
 
-  const conversao = detectarConversao(texto);
+  const linhas = await sheet.getRows();
 
-  if (conversao) {
-    const linha = linhas.find(l => l.Numero === numero && l.Conversao === 'Não');
+  const mensagemNormalizada = normalizarTexto(mensagem);
+
+  // Verifica se é mensagem de conversão
+  if (palavrasConversao.some(palavra => mensagemNormalizada.includes(palavra))) {
+    const linha = linhas.find(row => row.Telefone === telefone && row.Conversao === 'Não');
     if (linha) {
       linha.Conversao = 'Sim';
-      linha['Data Conversao'] = dataHora;
+      linha.DataConversao = new Date().toLocaleDateString('pt-BR');
       await linha.save();
-      return;
     }
+    return;
   }
 
-  const campanha = identificarCampanha(texto);
-  if (campanha) {
-    await aba.addRow({
-      'Data Campanha': dataHora,
-      'Numero': numero,
-      'Mensagem': texto,
-      'Campanha': campanha,
-      'Conversao': 'Não',
-      'Data Conversao': ''
+  // Verifica se é uma das mensagens de campanha
+  const padraoEncontrado = campanhas.find(msg => {
+    const base = msg.split('{{')[0].trim();
+    return mensagem.startsWith(base);
+  });
+
+  if (padraoEncontrado) {
+    await sheet.addRow({
+      Telefone: telefone,
+      Mensagem: mensagem,
+      Conversao: 'Não',
+      DataEnvio: new Date().toLocaleDateString('pt-BR')
     });
   }
 }
 
-module.exports = { registrarMensagemOuAtualizar };
+module.exports = processarMensagem;
