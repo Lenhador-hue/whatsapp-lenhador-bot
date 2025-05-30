@@ -1,7 +1,6 @@
 // === server.js ===
 const express = require('express');
 const bodyParser = require('body-parser');
-// Importa corretamente o processarMensagem
 const { processarMensagem } = require('./sheets');
 
 const app = express();
