@@ -1,62 +1,57 @@
 const { GoogleSpreadsheet } = require('google-spreadsheet');
-const creds = require('./credenciais.json');
+const credenciais = require('./credenciais.json');
 
-// ID da planilha compartilhada
-const doc = new GoogleSpreadsheet('1RA5sclobWJt8smpqRsYc6EvRGFK_x3dhndG2V2SCfkg');
+const SHEET_ID = '1Io0jlHVYRo2KGQKdMUw9xVhnqnrL1M38BFaZ87IL5lw'; // substitua se for diferente
+const aba = 'LENHADOR';
 
-const campanhas = [
-  'Fala {{ first_name }}, aqui é o Alessandro do Barba Lenhador 👋\nPassando para saber, como está o crescimento com o Minoxidil?\nVocê tem alguma dúvida? Estou aqui para ajudar!',
-  'Fala {{ first_name }}, aqui é o Alessandro do Barba Lenhador 👋\nJá faz um tempo que você iniciou o tratamento, gostaria de saber como está o crescimento com o Minoxidil?\nVocê tem alguma dúvida? Estou aqui para ajudar!',
-  'Fala {{ first_name }}, aqui é o Alessandro do Barba Lenhador 👋\nVi que faz um tempo que você iniciou o uso do Minoxidill, está tendo resultado?\nVocê tem alguma dúvida? Estou aqui para ajudar!',
-  'Fala {{ first_name }}, aqui é o Alessandro do Barba Lenhador 👋\nVocê está perto de completar os 6 meses de tratamento! Como tem sido sua evolução até agora?\nVocê tem alguma dúvida? Estou aqui para ajudar!'
-];
-
-const palavrasConversao = ['pix aprovado', 'pedido confirmado'];
-
-function normalizarTexto(texto) {
-  return texto?.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-}
-
-async function processarMensagem(dados) {
-  const mensagem = dados?.text?.message;
-  const telefone = dados?.phone;
-
-  if (!mensagem || !telefone) return;
-
-  await doc.useServiceAccountAuth(creds);
+async function processarMensagem(data) {
+  const doc = new GoogleSpreadsheet(SHEET_ID);
+  await doc.useServiceAccountAuth(credenciais);
   await doc.loadInfo();
-  const sheet = doc.sheetsByTitle['LENHADOR'];
-  await sheet.loadHeaderRow();
 
-  const linhas = await sheet.getRows();
-
-  const mensagemNormalizada = normalizarTexto(mensagem);
-
-  // Verifica se é mensagem de conversão
-  if (palavrasConversao.some(palavra => mensagemNormalizada.includes(palavra))) {
-    const linha = linhas.find(row => row.Telefone === telefone && row.Conversao === 'Não');
-    if (linha) {
-      linha.Conversao = 'Sim';
-      linha.DataConversao = new Date().toLocaleDateString('pt-BR');
-      await linha.save();
-    }
+  const sheet = doc.sheetsByTitle[aba];
+  if (!sheet) {
+    console.error(`Aba ${aba} não encontrada.`);
     return;
   }
 
-  // Verifica se é uma das mensagens de campanha
-  const padraoEncontrado = campanhas.find(msg => {
-    const base = msg.split('{{')[0].trim();
-    return mensagem.startsWith(base);
-  });
+  const nome = data?.senderName || '';
+  const mensagem = data?.text?.message || '';
 
-  if (padraoEncontrado) {
+  if (!mensagem) {
+    console.log('❌ Mensagem vazia, ignorada.');
+    return;
+  }
+
+  // Filtra apenas campanhas válidas
+  const campanhas = ['1 frasco', '2 frascos', '3 frascos', '6 frascos'];
+  const padrao = new RegExp(`(${campanhas.join('|')})`, 'i');
+  const confirmacoes = /(pix|pedido|confirmado|foi aprovado|pagamento|finalizei|feito)/i;
+
+  // Se for uma campanha
+  if (padrao.test(mensagem)) {
     await sheet.addRow({
-      Telefone: telefone,
-      Mensagem: mensagem,
-      Conversao: 'Não',
-      DataEnvio: new Date().toLocaleDateString('pt-BR')
+      data: new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+      nome,
+      telefone: data.phone,
+      campanha: mensagem,
+      status: 'pendente'
     });
+    console.log('✅ Campanha registrada');
+  }
+
+  // Se for uma confirmação
+  if (confirmacoes.test(mensagem)) {
+    const rows = await sheet.getRows();
+    const row = rows.reverse().find(r => r.telefone === data.phone && r.status !== 'conversão');
+    if (row) {
+      row.status = 'conversão';
+      await row.save();
+      console.log('✅ Conversão registrada');
+    } else {
+      console.log('⚠️ Nenhuma campanha correspondente encontrada para marcar como conversão.');
+    }
   }
 }
 
-module.exports = processarMensagem;
+module.exports = { processarMensagem };
