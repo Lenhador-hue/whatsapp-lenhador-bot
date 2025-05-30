@@ -1,71 +1,60 @@
-// ── sheets.js ──
+// === sheets.js ===
 const { GoogleSpreadsheet } = require('google-spreadsheet');
-const credentials = require('./credenciais.json');
+// Aponte aqui para o seu arquivo de credenciais JSON (secret file)
+const credenciais = require('./credenciais.json');
 
-// **Troque AQUI pelo ID da sua planilha (aquele do URL do Google Sheets):**
+// ✔️ Novo ID da sua planilha
 const SHEET_ID = '1RA5sclobWJt8smpqRsYc6EvRGFK_x3dhndG2V2SCfkg';
-const SHEET_TITLE = 'LENHADOR';
+const ABA = 'LENHADOR';
 
 async function processarMensagem(data) {
-  console.log('🔍 [sheets] Iniciando processarMensagem...');
-  console.log('🔢 phone=', data.phone, 'mensagem=', data.text?.message);
-
-  // Autentica e carrega o doc
   const doc = new GoogleSpreadsheet(SHEET_ID);
-  try {
-    await doc.useServiceAccountAuth(credentials);
-    await doc.loadInfo();
-  } catch (err) {
-    console.error('❌ [sheets] Erro ao autenticar/carregar planilha:', err);
-    return;
-  }
+  await doc.useServiceAccountAuth(credenciais);
+  await doc.loadInfo();
 
-  const sheet = doc.sheetsByTitle[SHEET_TITLE];
+  const sheet = doc.sheetsByTitle[ABA];
   if (!sheet) {
-    console.error(`❌ [sheets] Aba "${SHEET_TITLE}" não encontrada.`);
+    console.error(`❌ Aba "${ABA}" não encontrada.`);
     return;
   }
-  console.log('✅ [sheets] Conectado à aba', SHEET_TITLE);
 
-  const mensagem = data.text?.message?.toLowerCase() || '';
-  const telefone  = data.phone;
-  // só capturamos “1 frasco”“2 frascos” “3 frascos” “6 frascos”
-  const padraoCampanha = /\b(1 frasco|2 frascos|3 frascos|6 frascos)\b/;
-  const padraoConfirm   = /(pix aprovado|pedido confirmado|pagamento aprovado|compra realizada|fechamos)/;
+  const nome     = data.senderName || '';
+  const telefone = data.phone      || '';
+  const mensagem = data.text?.message || '';
 
-  // CAMPAIGNS
+  if (!mensagem) {
+    console.log('❌ Mensagem vazia, ignorada.');
+    return;
+  }
+
+  // Campanhas válidas
+  const campanhas      = ['1 frasco', '2 frascos', '3 frascos', '6 frascos'];
+  const padraoCampanha = new RegExp(`(${campanhas.join('|')})`, 'i');
+  const padraoConv     = /(pix|pedido|confirmado|foi aprovado|pagamento|finalizei|feito)/i;
+
+  // 👉 Registra nova campanha
   if (padraoCampanha.test(mensagem)) {
-    try {
-      await sheet.addRow({
-        Data:       new Date().toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'}),
-        Número:     telefone,
-        Mensagem:   data.text.message,
-        Campanha:   data.text.message,
-        Conversão:  'pendente'
-      });
-      console.log('✅ [sheets] Campanha registrada!');
-    } catch (err) {
-      console.error('❌ [sheets] Erro ao gravar campanha:', err);
-    }
+    await sheet.addRow({
+      data:      new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),
+      nome,
+      telefone,
+      campanha: mensagem,
+      status:   'pendente'
+    });
+    console.log('✅ Campanha registrada');
     return;
   }
 
-  // CONFIRMATIONS
-  if (padraoConfirm.test(mensagem)) {
-    try {
-      const rows = await sheet.getRows();
-      const match = rows
-        .reverse()
-        .find(r => r.Número === telefone && r.Conversão === 'pendente');
-      if (match) {
-        match.Conversão = 'confirmado';
-        await match.save();
-        console.log('✅ [sheets] Conversão marcada!');
-      } else {
-        console.log('⚠️ [sheets] Nenhuma campanha “pendente” encontrada para', telefone);
-      }
-    } catch (err) {
-      console.error('❌ [sheets] Erro ao atualizar conversão:', err);
+  // 👉 Marca conversão
+  if (padraoConv.test(mensagem)) {
+    const rows = await sheet.getRows();
+    const row  = rows.reverse().find(r => r.telefone === telefone && r.status === 'pendente');
+    if (row) {
+      row.status = 'conversão';
+      await row.save();
+      console.log('✅ Conversão registrada');
+    } else {
+      console.log('⚠️ Nenhuma campanha pendente encontrada para conversão.');
     }
   }
 }
